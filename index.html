@@ -4122,11 +4122,25 @@ async function editProcessarFormulario(ev){
   }catch(e){editMostrarAviso(e.message||'Não foi possível validar a senha.',true);}
   finally{submit.disabled=false;}
 }
+function editSincronizarEstadoAntesExportar(){
+  // Se o usuário estiver digitando em um campo e clicar diretamente em
+  // “Baixar HTML protegido”, força o blur para disparar o onchange antes
+  // de capturar F/HIST/PADROES. Assim nenhum valor fica apenas no DOM.
+  try{
+    const ativo=document.activeElement;
+    if(ativo && ativo!==document.body && /^(INPUT|SELECT|TEXTAREA)$/.test(ativo.tagName))ativo.blur();
+  }catch(e){}
+  try{if(typeof atualizarProducaoDiaria==="function")atualizarProducaoDiaria();}catch(e){}
+  try{if(typeof rmEnriquecerHistoricoGenerico==="function")rmEnriquecerHistoricoGenerico();}catch(e){}
+  try{if(typeof salvarHistoricoPostes==="function")salvarHistoricoPostes();}catch(e){}
+  try{if(typeof padGuardar==="function")padGuardar();}catch(e){}
+  try{if(typeof F!=="undefined"&&Array.isArray(F)&&typeof KEY_F!=="undefined")localStorage.setItem(KEY_F,JSON.stringify(F));}catch(e){}
+  try{if(typeof P!=="undefined"&&Array.isArray(P)&&typeof KEY_P!=="undefined")localStorage.setItem(KEY_P,JSON.stringify(P));}catch(e){}
+}
 function editSnapshotDadosAtuais(){
   // O HTML protegido precisa transportar o estado REAL do painel, não apenas
   // a estrutura virgem do arquivo. O snapshot abaixo reúne todas as abas.
-  try{ if(typeof salvarHistoricoPostes==="function")salvarHistoricoPostes(); }catch(e){}
-  try{ if(typeof padGuardar==="function")padGuardar(); }catch(e){}
+  editSincronizarEstadoAntesExportar();
   const stamp=(globalThis.crypto&&crypto.randomUUID)?crypto.randomUUID():`${Date.now()}_${Math.random().toString(36).slice(2)}`;
   return {
     v:1,
@@ -4155,7 +4169,10 @@ function editSnapshotDadosAtuais(){
     baseOficialFonteKey:(typeof RM_BASE_OFICIAL_FONTE_KEY!=="undefined"?RM_BASE_OFICIAL_FONTE_KEY:"riominas_base_oficial_fonte_rev"),
     baseOficialFonteRev:(typeof RM_BASE_OFICIAL_FONTE_REV!=="undefined"?RM_BASE_OFICIAL_FONTE_REV:""),
     fatorDBaseMarker:(typeof RM_FACTOR_D_BASE_MARKER!=="undefined"?RM_FACTOR_D_BASE_MARKER:""),
-    progressBaseline:(()=>{try{return JSON.parse(localStorage.getItem("riominas_progress_baseline_v4")||"null")}catch(e){return null}})()
+    progressBaseline:(()=>{try{return JSON.parse(localStorage.getItem("riominas_progress_baseline_v4")||"null")}catch(e){return null}})(),
+    tableMode:localStorage.getItem("rioMinasTableModeV2")||"km",
+    tableFilters:(()=>{try{return JSON.parse(localStorage.getItem("rioMinasTableFiltersV1")||"null")}catch(e){return null}})(),
+    filtroTrecho:localStorage.getItem("rmFiltroTrecho")||""
   };
 }
 function editJsonSeguroParaScript(obj){
@@ -4163,12 +4180,10 @@ function editJsonSeguroParaScript(obj){
 }
 function editBaixarHtmlProtegido(){
   if(!EDIT_DESBLOQUEADO || !EDIT_CONFIG_ATUAL)return;
-  // Garante que todo estado em memória esteja persistido antes de gerar o
-  // snapshot. Isso inclui frentes, histórico diário, parâmetros e padrões.
-  try{if(typeof F!=="undefined"&&Array.isArray(F))localStorage.setItem(KEY_F,JSON.stringify(F));}catch(e){}
-  try{if(typeof P!=="undefined"&&Array.isArray(P))localStorage.setItem(KEY_P,JSON.stringify(P));}catch(e){}
-  try{if(typeof salvarHistoricoPostes==="function")salvarHistoricoPostes();}catch(e){}
-  try{if(typeof padGuardar==="function")padGuardar();}catch(e){}
+  // Consolida primeiro tudo que estiver pendente na tela. Só depois o snapshot
+  // e o HTML são serializados, evitando exportar o valor anterior.
+  editSincronizarEstadoAntesExportar();
+  const snapshot=editSnapshotDadosAtuais();
   // Remove qualquer marcador transitório de eventos antes de serializar o DOM.
   document.querySelectorAll('[data-edit-security-ready],[data-trecho-ready]').forEach(el=>{
     el.removeAttribute('data-edit-security-ready');el.removeAttribute('data-trecho-ready');
@@ -4180,16 +4195,18 @@ function editBaixarHtmlProtegido(){
     editMostrarAviso('Não foi possível preparar o HTML protegido com todos os dados. Exporte um backup e tente novamente.',true);
     return;
   }
-  const snapshot=editSnapshotDadosAtuais();
   html=html.replace(tagSenha,'const EDIT_CONFIG_EMBEDDED = '+JSON.stringify(EDIT_CONFIG_ATUAL)+'; // __EDIT_CONFIG_V1__');
   html=html.replace(tagDados,'const EDIT_DATA_EMBEDDED = '+editJsonSeguroParaScript(snapshot)+'; // __EDIT_DATA_V1__');
   // O arquivo distribuível passa a carregar o estado atual de todas as abas.
   const blob=new Blob([html],{type:'text/html;charset=utf-8'});
   const url=URL.createObjectURL(blob);
-  const a=document.createElement('a');a.href=url;a.download='Ecovias_RioMinas_Gestao_Iluminacao_PROTEGIDO.html';
+  const agora=new Date(),pad=n=>String(n).padStart(2,'0');
+  const stampNome=`${agora.getFullYear()}${pad(agora.getMonth()+1)}${pad(agora.getDate())}_${pad(agora.getHours())}${pad(agora.getMinutes())}${pad(agora.getSeconds())}`;
+  const a=document.createElement('a');a.href=url;a.download=`Ecovias_RioMinas_Gestao_Iluminacao_PROTEGIDO_${stampNome}.html`;
   document.body.appendChild(a);a.click();a.remove();
   setTimeout(()=>URL.revokeObjectURL(url),2000);
-  editMostrarAviso('HTML protegido gerado com o snapshot atual. Ao abrir em outro navegador, os dados exportados serão restaurados antes das rotinas de base.');
+  const soma=(fase)=>snapshot.frentes.filter(r=>r&&r[4]===fase).reduce((s,r)=>s+(Number(r[9])||0),0);
+  editMostrarAviso(`HTML protegido salvo com o estado atual · Fator D: ${soma('Fator D')} · Fase 01: ${soma('Fase 01')} · Fase 02: ${soma('Fase 02')}. O nome do arquivo contém data/hora para evitar abrir uma versão antiga.`);
 }
 function editInicializarProtecao(){
   const lock=document.getElementById('editLockBtn');
@@ -4303,6 +4320,9 @@ const EDIT_DATA_SEED_KEY="riominas_iluminacao_embedded_seed_applied_v1";
     }
     if(b.fatorDBaseMarker)localStorage.setItem("riominas_factor_d_export_marker",String(b.fatorDBaseMarker));
     if(b.progressBaseline&&b.progressBaseline.rev==="PROGRESSIVO_POR_LINHA_2026_09_28_V4")localStorage.setItem("riominas_progress_baseline_v4",JSON.stringify(b.progressBaseline));
+    if(b.tableMode!==undefined)localStorage.setItem("rioMinasTableModeV2",String(b.tableMode||"km"));
+    if(b.tableFilters!==undefined&&b.tableFilters!==null)localStorage.setItem("rioMinasTableFiltersV1",JSON.stringify(b.tableFilters));
+    if(b.filtroTrecho!==undefined)localStorage.setItem("rmFiltroTrecho",String(b.filtroTrecho||""));
     // Impede que a rotina de primeira carga apague os dados recém-restaurados.
     localStorage.setItem(BACKUP_REV_KEY,"ok");
     localStorage.setItem(EDIT_DATA_SEED_KEY,String(b.id));
