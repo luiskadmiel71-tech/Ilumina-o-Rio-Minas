@@ -5989,19 +5989,21 @@ editInicializarProtecao();
     if(!HIST.fatorD.snapshots)HIST.fatorD.snapshots={};
     return HIST.fatorD;
   }
-  function rmFdRegistros(){
-    const e=selected(),t=selectedTrecho();
+  function rmFdRegistros(trechoOverride=null){
+    const e=selected();
     if(e&&e!=="ARCEL")return [];
+    const bruto=trechoOverride===null?selectedTrecho():String(trechoOverride||'');
+    const t=bruto?rmFdTrechoNome(bruto):'';
     return rmGarantirHistoricoFatorD().registros.filter(x=>!t||x.trecho===t);
   }
   function rmFdTrecho(r){return String(r&&r[2]||'').toLowerCase().includes('dutra')?'Dutra':'Magé–Manilha';}
-  function rmFdDia(data,trecho=''){
-    const regs=rmFdRegistros().filter(x=>x.data===data&&(!trecho||x.trecho===trecho));
+  function rmFdDia(data,trecho=null){
+    const regs=rmFdRegistros(trecho).filter(x=>x.data===data);
     return Math.max(0,regs.reduce((s,x)=>s+n(x.realizado),0));
   }
   function rmFdAcumuladoAte(data){return Math.max(0,rmFdRegistros().filter(x=>dataValidaIso(x.data)&&x.data<=data).reduce((s,x)=>s+n(x.realizado),0));}
   function rmFdMetadados(data,trecho,campo){
-    return [...new Set(rmFdRegistros().filter(x=>x.data===data&&x.trecho===trecho&&n(x.realizado)!==0).map(x=>String(x[campo]||'').trim()).filter(Boolean))].join(' / ');
+    return [...new Set(rmFdRegistros(trecho).filter(x=>x.data===data&&n(x.realizado)!==0).map(x=>String(x[campo]||'').trim()).filter(Boolean))].join(' / ');
   }
   function rmFdKmAcumuladoAte(data){
     return rmFdRegistros().filter(x=>dataValidaIso(x.data)&&x.data<=data).reduce((s,x)=>{
@@ -6092,25 +6094,35 @@ editInicializarProtecao();
     if(inteiro){const ini=k,fim=k+1;return ints.some(([a,b])=>(a===b?(a>=ini&&a<fim):(a<fim&&b>=ini)));}
     return ints.some(([a,b])=>k>=a&&k<=b);
   }
-  function rmFdHistoricoTrechoAte(data,trecho=''){
-    const nome=trecho?rmFdTrechoNome(trecho):'';
-    return rmFdRegistros().filter(x=>dataValidaIso(x.data)&&x.data<=data&&(!nome||x.trecho===nome)).reduce((s,x)=>s+n(x.realizado),0);
+  function rmFdHistoricoTrechoAte(data,trecho=null){
+    const alvo=trecho===null?selectedTrecho():String(trecho||'');
+    const nome=alvo?rmFdTrechoNome(alvo):'';
+    return rmFdRegistros(nome).filter(x=>dataValidaIso(x.data)&&x.data<=data).reduce((s,x)=>s+n(x.realizado),0);
   }
-  function rmFdExecOficialAte(data,trecho=''){
-    const nome=trecho?rmFdTrechoNome(trecho):'';
+  function rmFdExecOficialAte(data,trecho=null){
+    const alvo=trecho===null?selectedTrecho():String(trecho||'');
+    const nome=alvo?rmFdTrechoNome(alvo):'';
     if(!dataValidaIso(data)||data<RM_FD_OFICIAL_DATA)return Math.max(0,rmFdHistoricoTrechoAte(data,nome));
     const nomes=nome?[nome]:Object.keys(RM_FD_EXEC_OFICIAL);
     const base=nomes.reduce((s,t)=>s+(RM_FD_EXEC_OFICIAL[t]||0),0);
-    const pos=rmFdRegistros().filter(x=>dataValidaIso(x.data)&&x.data>RM_FD_OFICIAL_DATA&&x.data<=data&&(!nome||x.trecho===nome)).reduce((s,x)=>s+n(x.realizado),0);
+    const pos=rmFdRegistros(nome).filter(x=>dataValidaIso(x.data)&&x.data>RM_FD_OFICIAL_DATA&&x.data<=data).reduce((s,x)=>s+n(x.realizado),0);
     return Math.max(0,base+pos);
   }
-  function rmFdSerieOficialAte(dataFinal=''){
-    const regs=rmFdRegistros(),datas=[...new Set(regs.map(x=>x.data).filter(dataValidaIso))];
+  function rmFdSerieOficialAte(dataFinal='',trecho=null){
+    const alvo=trecho===null?selectedTrecho():String(trecho||'');
+    const nome=alvo?rmFdTrechoNome(alvo):'';
+    const regs=rmFdRegistros(nome),datas=[...new Set(regs.map(x=>x.data).filter(dataValidaIso))];
     if(dataValidaIso(RM_FD_OFICIAL_DATA))datas.push(RM_FD_OFICIAL_DATA);
     if(dataValidaIso(dataFinal))datas.push(dataFinal);
-    return [...new Set(datas)].sort().filter(d=>!dataFinal||d<=dataFinal).map(data=>({data,dia:rmFdDia(data),ac:rmFdExecOficialAte(data),dutra:rmFdDia(data,'Dutra'),mm:rmFdDia(data,'Magé–Manilha')}));
+    let anterior=0;
+    return [...new Set(datas)].sort().filter(d=>!dataFinal||d<=dataFinal).map(data=>{
+      const ac=rmFdExecOficialAte(data,nome);
+      const dia=Math.max(0,ac-anterior);
+      anterior=ac;
+      return {data,dia,ac,dutra:rmFdDia(data,'Dutra'),mm:rmFdDia(data,'Magé–Manilha')};
+    });
   }
-  function rmFdExecOficialAtual(){return rmFdExecOficialAte(dataDiariaSelecionada(),selectedTrecho());}
+  function rmFdExecOficialAtual(){return rmFdExecOficialAte(dataDiariaSelecionada());}
   function sumRiskRows(a){
     const t=a.reduce((t,r)=>{
       const p=Math.max(0,n(r[6])),l=Math.max(0,n(r[7])),real=Math.max(0,n(r[9]));
@@ -6655,12 +6667,12 @@ editInicializarProtecao();
     const filtro=selected(),atual=dataDiariaSelecionada();
     const emps=filtro?[filtro]:['ARCEL','PROSEG'];
     const regs=(HIST&&Array.isArray(HIST.registros)?HIST.registros:[]).filter(r=>dataValidaIso(r.data)&&r.data<=atual&&(!filtro||r.empresa===filtro)&&historicoNoTrecho(r));
-    const fdDatas=rmFdSerieAte(atual).map(x=>x.data);
+    const fdDatas=rmFdSerieOficialAte(atual).map(x=>x.data);
     const datas=[...new Set([...fdDatas,...regs.map(r=>r.data)])].filter(dataValidaIso).sort();
     const campo=metrica==='luminarias'?'quantidadeLuminarias':'quantidade';
     const valorAte=(emp,data)=>{
       let total=0;
-      if(metrica==='postes'&&emp==='ARCEL')total+=rmFdAcumuladoAte(data);
+      if(metrica==='postes'&&emp==='ARCEL')total+=rmFdExecOficialAte(data);
       total+=regs.filter(r=>r.empresa===emp&&r.data<=data).reduce((a,r)=>a+Math.max(0,n(r[campo])),0);
       return total;
     };
@@ -6734,7 +6746,7 @@ editInicializarProtecao();
       {nome:`Projeção pela média · ${fdMedia.toLocaleString('pt-BR',{minimumFractionDigits:1,maximumFractionDigits:1})}/dia`,cor:'#5b6fb5',dash:'2 6',width:2.5,dots:false,valores:fdProjecao}
     ],{percentage:true,deadlines:'pactuado',height:345,xDates:fdXAxis,alt:'Fator D: realizado acumulado, mínimo contratual, ritmo necessário e projeção pela média realizada'});
     $('curveFase1Legend').innerHTML=`<div class="legendGroup"><div class="legendTitle">Realizado acumulado</div><div class="legendItem"><i class="curveKey" style="--key:#006b3c"></i>${fmt(fdReal)} de ${fmt(fdTotal)} postes</div></div><div class="legendGroup"><div class="legendTitle">Mínimo contratual</div><div class="legendItem"><i class="curveKey longdash" style="--key:#176f9d"></i>30 postes/dia</div></div><div class="legendGroup"><div class="legendTitle">Ritmo necessário</div><div class="legendItem"><i class="curveKey dashed" style="--key:#d97706"></i>${fdNecessario===null?'prazo encerrado':fdNecessario.toLocaleString('pt-BR',{minimumFractionDigits:1,maximumFractionDigits:1})+' postes/dia'}</div></div><div class="legendGroup"><div class="legendTitle">Projeção pela média realizada</div><div class="legendItem"><i class="curveKey dotted" style="--key:#5b6fb5"></i>${fdMedia.toLocaleString('pt-BR',{minimumFractionDigits:1,maximumFractionDigits:1})} postes/dia</div></div>`;
-    $('curveFase1Note').textContent=`Leitura do gráfico: o mínimo contratual acumula 30 postes/dia desde ${dataCurvasBR(fdInicio)}. O ritmo necessário parte do realizado acumulado na Data do apontamento e chega ao escopo do Fator D em 30/09/2026. A projeção futura utiliza a média diária do histórico real anterior à data selecionada.`;
+    $('curveFase1Note').textContent=`Leitura do gráfico${trechoCurva?' — '+trechoCurva:''}: o realizado acumulado respeita o filtro de trecho e fecha no consolidado oficial do Fator D (Dutra 214; Magé–Manilha 73 em 28/09/2026). O ponto de 28/09 incorpora a conciliação entre o histórico diário e o total oficial, sem redistribuir esse ajuste entre KMs. O mínimo contratual acumula 30 postes/dia desde ${dataCurvasBR(fdInicio)}.`;
 
     /* ===== 2. CRONOGRAMA GEN — 30/09/2026 a 22/09/2027 =====
        Regra: o GEN possui base própria. Previsto e realizado anteriores a
@@ -6807,7 +6819,7 @@ editInicializarProtecao();
     const fs=rmFornecedorSeries(curvaMetrica),seriesFornecedor=fs.series.map(s=>({nome:s.nome,cor:s.cor,valores:s.valores}));
     $('curveFornecedorPlot').innerHTML=seriesFornecedor.length?cLinhaSVG(seriesFornecedor,{xDates:fs.datas,alt:`Execução acumulada por fornecedor em ${curvaMetrica}`}):`<p class="curveNote">Ainda não há execução diária registrada de ${curvaMetrica==='postes'?'postes':'luminárias'} por fornecedor.</p>`;
     $('curveFornecedorLegend').innerHTML=seriesFornecedor.map(s=>`<span><i class="curveKey" style="--key:${s.cor}"></i>${escHtml(s.nome)}</span>`).join('');
-    $('curveFornecedorNote').textContent=curvaMetrica==='postes'?'A ARCEL incorpora o histórico diário real do Fator D; novos lançamentos posteriores são acumulados por fornecedor. A PROSEG permanece sem execução antes de novembro/2026.':'Luminárias são exibidas somente quando houver apontamentos diários individualizados no HTML.';
+    $('curveFornecedorNote').textContent=curvaMetrica==='postes'?`A ARCEL incorpora o acumulado oficial do Fator D${trechoCurva?' filtrado em '+trechoCurva:''}; o marco de 28/09/2026 concilia o histórico diário com 214 na Dutra e 73 na Magé–Manilha. Novos lançamentos posteriores seguem acumulados normalmente. A PROSEG permanece sem execução antes de novembro/2026.`:'Luminárias são exibidas somente quando houver apontamentos diários individualizados no HTML.';
     $('curveProducaoPlot').innerHTML=rmProdutividadeSVG(curvaMetrica);
     $('curveItemAtual').textContent=curvaMetrica==='postes'?'POSTES':'LUMINÁRIAS';
     const nomesLegenda=(selected()?[selected()]:['ARCEL','PROSEG']);
