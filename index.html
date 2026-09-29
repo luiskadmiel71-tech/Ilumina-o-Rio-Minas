@@ -4147,7 +4147,7 @@ body.editIsLocked #viewGeral input.edit:not(.releaseAuto),body.editIsLocked #vie
   </div>
   <input id="postesDia" type="hidden" value="0">
   <div class="footNote">
-    Salvamento automático no navegador • use o backup para transferir ou recuperar os dados.
+    Salvamento automático no navegador • use o backup para transferir ou recuperar os dados • “Atualizar versão” ignora cache sem recarga automática.
   </div>
   <div class="footActions">
     <button type="button" id="copyWhatsappBtn" onclick="copiarResumoWhatsApp()" title="Copiar o consolidado do escopo atual e da Fase 1 - Fator D">
@@ -4163,6 +4163,7 @@ body.editIsLocked #viewGeral input.edit:not(.releaseAuto),body.editIsLocked #vie
     <button type="button" id="editLockBtn" title="Controlar acesso à edição dos dados">Bloquear edição</button>
     <button type="button" id="editChangeBtn">Alterar senha</button>
     <button type="button" id="editDownloadBtn">Baixar HTML protegido</button>
+    <button type="button" id="rmManualRefreshBtn" onclick="rmAtualizarVersaoManual()" title="Recarregar o index publicado ignorando uma cópia antiga em cache">Atualizar versão</button>
     <span id="editSecurityStatus" class="editSecurityState isUnlocked" role="status" aria-live="polite">🔓 Edição habilitada</span>
   </div>
   <section id="editSecurityPanel" class="editSecurityPanel" aria-label="Configuração da senha de edição" hidden="">
@@ -4542,71 +4543,28 @@ const EDIT_DATA_EMBEDDED = {"v":1,"id":"b56873dd-7c61-437a-bcf4-a95a5a068095","e
 const RM_APP_BUILD_ID="b56873dd-7c61-437a-bcf4-a95a5a068095"; // __RM_BUILD_ID__
 const EDIT_DATA_SEED_KEY="riominas_iluminacao_embedded_seed_applied_v1";
 const RM_LAST_EMBEDDED_META_KEY="riominas_last_embedded_snapshot_v2";
-const RM_AUTO_UPDATE_PARAM="_rmv";
-const RM_AUTO_UPDATE_CHECK_MS=60000;
-function rmExtrairVersaoPublicada(html){
-  const s=String(html||"");
-  const build=s.match(/const RM_APP_BUILD_ID="([^"]+)"; \/\/ __RM_BUILD_ID__/);
-  const id=s.match(/const EDIT_DATA_EMBEDDED = \{[^\n]*?"id":"([^"]+)"/);
-  const exp=s.match(/const EDIT_DATA_EMBEDDED = \{[^\n]*?"exportadoEm":"([^"]+)"/);
-  return {build:build?String(build[1]||""):(id?String(id[1]||""):""),id:id?String(id[1]||""):"",exportadoEm:exp?String(exp[1]||""):""};
-}
-function rmVersaoAtualDoHtml(){
-  const b=EDIT_DATA_EMBEDDED;
-  return {build:String(RM_APP_BUILD_ID||((b&&b.id)?b.id:"")),id:(b&&b.id)?String(b.id):"",exportadoEm:(b&&b.exportadoEm)?String(b.exportadoEm):""};
-}
-async function rmVerificarAtualizacaoPublicada(){
-  if(!/^https?:$/.test(location.protocol))return;
-  if(globalThis.__rmAutoUpdateBusy)return;
-  globalThis.__rmAutoUpdateBusy=true;
-  try{
-    const probe=new URL(location.href);
-    probe.hash="";
-    probe.searchParams.delete(RM_AUTO_UPDATE_PARAM);
-    probe.searchParams.set("_rmcheck",String(Date.now()));
-    const resp=await fetch(probe.toString(),{
-      method:"GET",
-      cache:"no-store",
-      credentials:"same-origin",
-      headers:{"Cache-Control":"no-cache, no-store, must-revalidate","Pragma":"no-cache"}
-    });
-    if(!resp.ok)return;
-    const remoto=rmExtrairVersaoPublicada(await resp.text());
-    const atual=rmVersaoAtualDoHtml();
-    if(!remoto.build || remoto.build===atual.build)return;
+const RM_MANUAL_REFRESH_PARAM="_rmfresh";
 
-    // Em computadores apenas de consulta, atualiza imediatamente. Se este
-    // navegador estiver com a edição desbloqueada, evita interromper um
-    // lançamento em andamento e apenas avisa que existe versão mais nova.
-    if(typeof EDIT_DESBLOQUEADO!=="undefined" && EDIT_DESBLOQUEADO){
-      try{editMostrarAviso("Existe uma versão mais nova publicada. Bloqueie a edição ou reabra o painel para carregá-la automaticamente.",false);}catch(e){}
-      return;
-    }
-    const destino=new URL(location.href);
-    destino.searchParams.delete("_rmcheck");
-    destino.searchParams.set(RM_AUTO_UPDATE_PARAM,remoto.build);
-    destino.hash=location.hash||"";
-    location.replace(destino.toString());
-  }catch(e){
-    // Falha de rede não interfere no uso local do painel.
-  }finally{
-    globalThis.__rmAutoUpdateBusy=false;
+// Atualização segura: não há mais recarga automática.
+// O painel permanece estável e somente força uma nova leitura do HTML quando
+// o usuário aciona explicitamente “Atualizar versão”. O parâmetro com timestamp
+// evita reutilizar uma cópia antiga do navegador/CDN sem criar loop de recarga.
+function rmAtualizarVersaoManual(){
+  if(!/^https?:$/.test(location.protocol)){
+    try{editMostrarAviso("Este arquivo está aberto localmente. Publique o novo index.html para atualizar a versão online.",false);}catch(e){}
+    return;
   }
-}
-(function rmAtivarAtualizacaoAutomatica(){
-  if(!/^https?:$/.test(location.protocol))return;
   try{
     const u=new URL(location.href);
-    if(u.searchParams.get(RM_AUTO_UPDATE_PARAM)!==String(RM_APP_BUILD_ID)){
-      u.searchParams.set(RM_AUTO_UPDATE_PARAM,String(RM_APP_BUILD_ID));
-      history.replaceState(null,'',u.toString());
-    }
-  }catch(e){}
-  setTimeout(rmVerificarAtualizacaoPublicada,350);
-  setInterval(rmVerificarAtualizacaoPublicada,RM_AUTO_UPDATE_CHECK_MS);
-  document.addEventListener("visibilitychange",()=>{if(!document.hidden)rmVerificarAtualizacaoPublicada();});
-  window.addEventListener("pageshow",ev=>{if(ev.persisted)rmVerificarAtualizacaoPublicada();});
-})();
+    u.searchParams.delete("_rmcheck");
+    u.searchParams.delete("_rmv");
+    u.searchParams.set(RM_MANUAL_REFRESH_PARAM,String(Date.now()));
+    location.assign(u.toString());
+  }catch(e){
+    location.reload();
+  }
+}
+window.rmAtualizarVersaoManual=rmAtualizarVersaoManual;
 (function editAplicarSnapshotEmbutido(){
   const b=EDIT_DATA_EMBEDDED;
   if(!b || b.v!==1 || !b.id)return;
